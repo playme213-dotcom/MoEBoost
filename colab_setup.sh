@@ -159,13 +159,15 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[Step 4/5] Starting MoEBoost Server Daemon...${RESET}"
 export MOE_MODELS_DIR="$(pwd)/models"
-export MOE_MODEL_FILE="$(basename "$TARGET_MODEL")"
+RELATIVE_MODEL_ID="$(python3 -c "import os; print(os.path.relpath('$TARGET_MODEL', 'models'))")"
+export MOE_MODEL_FILE="$RELATIVE_MODEL_ID"
 export MOE_PORT="4133"
 
 # Terminate any previously running server on port 4133
 if command -v fuser >/dev/null 2>&1; then
     fuser -k -9 4133/tcp >/dev/null 2>&1 || true
 fi
+pkill -9 -f uvicorn >/dev/null 2>&1 || true
 
 python3 -m uvicorn server:app --host 127.0.0.1 --port 4133 > server.log 2>&1 &
 SERVER_PID=$!
@@ -191,4 +193,4 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[Step 5/5] Launching Interactive Python Chat with tok/s Telemetry...${RESET}"
 echo "------------------------------------------------------------------------------"
-exec python3 moeboost_chat.py --model "$(basename "$TARGET_MODEL")"
+exec python3 moeboost_chat.py --model "$RELATIVE_MODEL_ID"

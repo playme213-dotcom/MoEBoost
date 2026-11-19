@@ -1623,7 +1623,7 @@ async def chat_completions(request: Request):
     except NativeRuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except (ValueError, OSError) as exc:
-        raise HTTPException(status_code=404, detail=f"unknown local GGUF model: {model_id}") from exc
+        raise HTTPException(status_code=404, detail=f"Failed loading model '{model_id}': {exc}") from exc
 
     try:
         temperature = min(2.0, max(0.0, float(body.get("temperature", 0.7))))
