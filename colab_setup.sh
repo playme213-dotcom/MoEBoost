@@ -69,40 +69,48 @@ fi
 echo -e "\n${BOLD}[3/4] Select a Mixture-of-Experts (MoE) Model to Download:${RESET}"
 
 cat << 'CATALOG'
-  [1] Qwen1.5-MoE-A2.7B-Chat (Q4_K_M) [~9.2 GB]  - 14.3B Total / 2.7B Active (Fast & Light)
-  [2] DeepSeek-V2-Lite-Chat  (Q4_K_M) [~10.1 GB] - 16B Total / 2.4B Active (Math & Logic)
-  [3] Cerebras Qwen3-Coder-25B-A3B    [~15.0 GB] - 25B Total / 3B Active (LARGE MoE - Coder)
-  [4] Mixtral-8x7B-Instruct-v0.1      [~20.3 GB] - 46.7B Total / 12.9B Active (LARGE MoE)
-  [5] Custom Hugging Face GGUF repository
+  [1] Qwen3.8-Flash-Next (UD-IQ4_XS 4-bit)  - 125B+ Next-Gen MoE, 256K Context (~87.2 GB)
+  [2] Qwen1.5-MoE-A2.7B-Chat (Q4_K_M)       - 14.3B Total / 2.7B Active (~9.2 GB, Ultra Fast)
+  [3] DeepSeek-V2-Lite-Chat  (Q4_K_M)       - 16B Total / 2.4B Active (~10.1 GB, Math & Code)
+  [4] Cerebras Qwen3-Coder-25B-A3B (IQ4_XS) - 25B Total / 3B Active (~15.0 GB, Large Coder MoE)
+  [5] Mixtral-8x7B-Instruct-v0.1   (Q3_K_M) - 46.7B Total / 12.9B Active (~20.3 GB, Large MoE)
+  [6] Custom Hugging Face GGUF repository
 CATALOG
 
-read -p "Enter choice [1-5, Default: 1]: " MODEL_CHOICE
+read -p "Enter choice [1-6, Default: 1]: " MODEL_CHOICE
 MODEL_CHOICE="${MODEL_CHOICE:-1}"
 
+SHARDS=""
 case "$MODEL_CHOICE" in
     1)
+        REPO="unsloth/Qwen3.8-Flash-Next-GGUF"
+        FILE="UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf"
+        SHARDS="UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf,UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00004.gguf,UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00004.gguf,UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00004-of-00004.gguf"
+        ;;
+    2)
         REPO="Qwen/Qwen1.5-MoE-A2.7B-Chat-GGUF"
         FILE="qwen1_5-moe-a2_7b-chat-q4_k_m.gguf"
         ;;
-    2)
+    3)
         REPO="bartowski/DeepSeek-V2-Lite-Chat-GGUF"
         FILE="DeepSeek-V2-Lite-Chat-Q4_K_M.gguf"
         ;;
-    3)
+    4)
         REPO="Cerebras/Qwen3-Coder-REAP-25B-A3B-GGUF"
         FILE="cerebras_Qwen3-Coder-REAP-25B-A3B-IQ4_XS.gguf"
         ;;
-    4)
+    5)
         REPO="TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF"
         FILE="mixtral-8x7b-instruct-v0.1.Q3_K_M.gguf"
         ;;
-    5)
-        read -p "Enter HF Repo ID (e.g. Qwen/Qwen1.5-MoE-A2.7B-Chat-GGUF): " REPO
+    6)
+        read -p "Enter HF Repo ID: " REPO
         read -p "Enter GGUF Filename: " FILE
         ;;
     *)
-        REPO="Qwen/Qwen1.5-MoE-A2.7B-Chat-GGUF"
-        FILE="qwen1_5-moe-a2_7b-chat-q4_k_m.gguf"
+        REPO="unsloth/Qwen3.8-Flash-Next-GGUF"
+        FILE="UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf"
+        SHARDS="UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf,UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00004.gguf,UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00004.gguf,UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00004-of-00004.gguf"
         ;;
 esac
 
@@ -111,14 +119,24 @@ if [ -f "$TARGET_MODEL" ]; then
     echo -e "${GREEN}✓ Model already downloaded in $TARGET_MODEL!${RESET}"
 else
     echo -e "\n${BOLD}Downloading $FILE from $REPO into Colab...${RESET}"
-    python3 - <<EOF
+    if [ -n "$SHARDS" ]; then
+        python3 - <<EOF
 from huggingface_hub import hf_hub_download
-import sys
-
-print("Downloading model weights via multi-threaded downloader...")
+repo_id = "$REPO"
+shards = "$SHARDS".split(",")
+for idx, s in enumerate(shards, 1):
+    print(f"[{idx}/{len(shards)}] Downloading {s}...")
+    hf_hub_download(repo_id=repo_id, filename=s, local_dir="models")
+print("All Flash-Next shards downloaded successfully!")
+EOF
+    else
+        python3 - <<EOF
+from huggingface_hub import hf_hub_download
+print("Downloading model weights...")
 path = hf_hub_download(repo_id="$REPO", filename="$FILE", local_dir="models")
 print("Done! Downloaded to:", path)
 EOF
+    fi
 fi
 
 # 4. Launch MoEBoost Server / Chat
