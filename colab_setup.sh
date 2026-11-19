@@ -57,16 +57,26 @@ pip install -q huggingface_hub fastapi uvicorn psutil requests pydantic httpx py
 # STEP 2: Compilation (llama-cpp-python CUDA & MoE C++ Pager Accelerator)
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[Step 2/5] Compiling Runtime & MoE Accelerators...${RESET}"
+RUNTIME_BACKEND="cpu"
 if [ -n "$CUDA_ARCH" ]; then
     echo "Compiling CUDA-accelerated llama-cpp-python for SM_${CUDA_ARCH}..."
     CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}" FORCE_CMAKE=1 pip install -q llama-cpp-python --no-cache-dir || {
         echo -e "${YELLOW}Source compile busy, using prebuilt CUDA wheel...${RESET}"
         pip install -q llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 || pip install -q llama-cpp-python
     }
+    RUNTIME_BACKEND="cuda"
 else
     echo "Installing CPU llama-cpp-python..."
     pip install -q llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 fi
+
+# Write runtime_backend.json so MoEBoost engine activates CUDA runtime
+python3 - <<EOF
+import json
+with open("runtime_backend.json", "w") as f:
+    json.dump({"backend": "$RUNTIME_BACKEND", "fallback_backends": ["cpu"]}, f)
+print("Configured MoEBoost runtime backend:", "$RUNTIME_BACKEND")
+EOF
 
 echo "Compiling MoEBoost C++ Pager extension..."
 mkdir -p build models
@@ -162,6 +172,9 @@ export MOE_MODELS_DIR="$(pwd)/models"
 RELATIVE_MODEL_ID="$(python3 -c "import os; print(os.path.relpath('$TARGET_MODEL', 'models'))")"
 export MOE_MODEL_FILE="$RELATIVE_MODEL_ID"
 export MOE_PORT="4133"
+export MOE_RUNTIME_BACKEND="$RUNTIME_BACKEND"
+export MOE_GPU_LAYERS="${MOE_GPU_LAYERS:--1}"
+export MOE_FLASH_ATTN="1"
 
 # Terminate any previously running server on port 4133
 if command -v fuser >/dev/null 2>&1; then

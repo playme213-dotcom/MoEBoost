@@ -142,16 +142,19 @@ def resolve_config(requested: AcceleratorConfig | None = None, layer_count: int 
     if device and device.get("vram_free_mb") is not None:
         usable_vram_mb = max(0, device["vram_free_mb"] - requested.vram_headroom_mb)
     if gpu_layers < 0:
-        # Only recommend offload when both live VRAM and tensor sizes are known.
+        # If layer sizes are known, calculate exact fit; otherwise if CUDA is available, offload to capacity
         gpu_layers = 0
-        if backend in {"cuda", "vulkan"} and usable_vram_mb is not None and layer_sizes and all(
-                size is not None for size in layer_sizes.values()):
-            remaining = usable_vram_mb * 1024 * 1024
-            for layer in sorted(layer_sizes, reverse=True):
-                if layer_sizes[layer] > remaining:
-                    break
-                remaining -= layer_sizes[layer]
-                gpu_layers += 1
+        if backend in {"cuda", "vulkan"} and usable_vram_mb is not None:
+            if layer_sizes and all(size is not None for size in layer_sizes.values()):
+                remaining = usable_vram_mb * 1024 * 1024
+                for layer in sorted(layer_sizes, reverse=True):
+                    if layer_sizes[layer] > remaining:
+                        break
+                    remaining -= layer_sizes[layer]
+                    gpu_layers += 1
+            elif layer_count is not None and layer_count > 0:
+                # Sharded or split models with weights across files: enable GPU layer offloading
+                gpu_layers = layer_count
     if layer_count is not None:
         gpu_layers = max(0, min(gpu_layers, layer_count))
     if requested.gpu_layers >= 0 and gpu_layers > 0 and backend in {"cuda", "vulkan"}:
