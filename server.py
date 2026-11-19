@@ -1598,7 +1598,7 @@ async def chat_completions(request: Request):
                 "message": "Native runtime could not confirm a safe memory fit",
                 "plan": plan,
             })
-        target_model_path = inventory.directory / model_id
+        target_model_path = Path(details["path"]).resolve()
         saved_m = _read_gui_settings().get(model_id) or _read_gui_settings().get("models", {}).get(model_id) or {}
         gpu_layers_override = saved_m.get("gpu_layers")
         # If user explicitly configured MOE_GPU_LAYERS in env (e.g. -1 for auto, or 4), let it take precedence over stale gui_settings

@@ -58,9 +58,16 @@ class ModelInventory:
 
     def get_details(self, model_id: str) -> dict:
         candidate = (self.directory / model_id).resolve()
-        # Accept if within self.directory OR if candidate is a symlink pointing outside
-        direct_child = (self.directory / model_id).is_file()
-        if not direct_child and (self.directory not in candidate.parents or candidate.suffix.lower() != ".gguf" or not candidate.is_file()):
+        # Accept if direct child or within directory tree
+        if not candidate.is_file() or candidate.suffix.lower() != ".gguf":
+            # Try searching by basename if model_id was provided without subdirectory prefix
+            matches = list(self.directory.rglob(f"*{model_id}*"))
+            matched_file = next((m for m in matches if m.is_file() and m.suffix.lower() == ".gguf"), None)
+            if matched_file:
+                candidate = matched_file.resolve()
+            else:
+                raise ValueError("unknown GGUF model id")
+        if self.directory not in candidate.parents and not (self.directory / model_id).is_file():
             raise ValueError("unknown GGUF model id")
         return self.inspect_file(candidate)
 
