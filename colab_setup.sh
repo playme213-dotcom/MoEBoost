@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# MoEBoost - One-Click Google Colab Setup & Large MoE Model Selection
-# Designed to run in Google Colab (T4 / A100 / L4 / V100 GPU runtimes)
+# ==============================================================================
+# MoEBoost - Google Colab Automated Pipeline
+# 1. Check Hardware & Dependencies (apt, pip, cmake, CUDA)
+# 2. Install & Compile (llama-cpp-python CUDA + MoE C++ Pager extension)
+# 3. Model Selection & Fast Multi-threaded Download (including Flash-Next 4-bit)
+# 4. Start MoEBoost Server Daemon (OpenAI compatible, port 4133)
+# 5. Launch Interactive Python Chat with Real-Time Generation & Prefill tok/s
+# ==============================================================================
 
 BOLD="\033[1m"
 GREEN="\033[0;32m"
@@ -22,54 +28,61 @@ cat << 'BANNER'
 BANNER
 echo -e "${RESET}"
 echo -e "${BOLD}MoEBoost Automated Google Colab Installer & Launcher${RESET}"
-echo "--------------------------------------------------------"
+echo "=============================================================================="
 
-# 1. Environment & GPU Detection
-echo -e "\n${BOLD}[1/4] Inspecting Colab Hardware & CUDA GPU...${RESET}"
+# ------------------------------------------------------------------------------
+# STEP 1: Hardware Inspection & CUDA Architecture Detection
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}[Step 1/5] Checking Hardware & Dependencies...${RESET}"
+CUDA_ARCH=""
 if command -v nvidia-smi >/dev/null 2>&1; then
+    echo -e "${CYAN}NVIDIA GPU Status:${RESET}"
     nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader
     CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1 | tr -d '.')
     echo -e "${GREEN}✓ GPU Detected with Compute Capability: ${CUDA_ARCH}${RESET}"
 else
-    echo -e "${YELLOW}Warning: No NVIDIA GPU detected. Inference will fall back to CPU.${RESET}"
-    CUDA_ARCH=""
+    echo -e "${YELLOW}Warning: No NVIDIA GPU detected. Falling back to CPU backend.${RESET}"
 fi
 
-# 2. System and Python package installations
-echo -e "\n${BOLD}[2/4] Installing Required Libraries & Dependencies...${RESET}"
 export DEBIAN_FRONTEND=noninteractive
+echo "Updating apt repositories and checking C++ build tools..."
 apt-get update -qq >/dev/null 2>&1 || true
 apt-get install -y -qq build-essential cmake python3-dev >/dev/null 2>&1 || true
 
+echo "Checking Python package dependencies..."
 pip install -q --upgrade pip
-pip install -q huggingface_hub fastapi uvicorn psutil requests pydantic httpx pybind11
+pip install -q huggingface_hub fastapi uvicorn psutil requests pydantic httpx pybind11 cmake
 
-# Install CUDA-accelerated llama-cpp-python
+# ------------------------------------------------------------------------------
+# STEP 2: Compilation (llama-cpp-python CUDA & MoE C++ Pager Accelerator)
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}[Step 2/5] Compiling Runtime & MoE Accelerators...${RESET}"
 if [ -n "$CUDA_ARCH" ]; then
-    echo "Installing CUDA-accelerated llama-cpp-python for compute architecture ${CUDA_ARCH}..."
+    echo "Compiling CUDA-accelerated llama-cpp-python for SM_${CUDA_ARCH}..."
     CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}" FORCE_CMAKE=1 pip install -q llama-cpp-python --no-cache-dir || {
-        echo -e "${YELLOW}Prebuilt CUDA compilation failed, falling back to prebuilt wheel...${RESET}"
+        echo -e "${YELLOW}Source compile busy, using prebuilt CUDA wheel...${RESET}"
         pip install -q llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 || pip install -q llama-cpp-python
     }
 else
+    echo "Installing CPU llama-cpp-python..."
     pip install -q llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 fi
 
-# Build MoE C++ Pager Accelerator
 echo "Compiling MoEBoost C++ Pager extension..."
 mkdir -p build models
 cmake -S . -B build -Dpybind11_DIR="$(python3 -c 'import pybind11; print(pybind11.get_cmake_dir())' 2>/dev/null || echo '')" >/dev/null 2>&1 || true
 cmake --build build --parallel 2 >/dev/null 2>&1 || true
 if [ -f "build/moe_pager_cpp"*.so ]; then
     cp build/moe_pager_cpp*.so . 2>/dev/null || true
-    echo -e "${GREEN}✓ MoEBoost C++ Pager accelerator compiled successfully.${RESET}"
+    echo -e "${GREEN}✓ MoEBoost C++ Pager accelerator successfully built.${RESET}"
 fi
 
-# 3. MoE Model Catalog with Large Models
-echo -e "\n${BOLD}[3/4] Select a Mixture-of-Experts (MoE) Model to Download:${RESET}"
-
+# ------------------------------------------------------------------------------
+# STEP 3: Select and Download MoE Model (with Flash-Next UD-IQ4_XS)
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}[Step 3/5] Select Mixture-of-Experts (MoE) Model:${RESET}"
 cat << 'CATALOG'
-  [1] Qwen3.8-Flash-Next (UD-IQ4_XS 4-bit)  - 125B+ Next-Gen MoE, 256K Context (~87.2 GB)
+  [1] Qwen3.8-Flash-Next (UD-IQ4_XS 4-bit)  - 125B+ Next-Gen MoE, 256K Context (~87.2 GB) [Recommended]
   [2] Qwen1.5-MoE-A2.7B-Chat (Q4_K_M)       - 14.3B Total / 2.7B Active (~9.2 GB, Ultra Fast)
   [3] DeepSeek-V2-Lite-Chat  (Q4_K_M)       - 16B Total / 2.4B Active (~10.1 GB, Math & Code)
   [4] Cerebras Qwen3-Coder-25B-A3B (IQ4_XS) - 25B Total / 3B Active (~15.0 GB, Large Coder MoE)
@@ -77,7 +90,7 @@ cat << 'CATALOG'
   [6] Custom Hugging Face GGUF repository
 CATALOG
 
-read -p "Enter choice [1-6, Default: 1]: " MODEL_CHOICE
+read -p "Select a model [1-6, Default: 1]: " MODEL_CHOICE
 MODEL_CHOICE="${MODEL_CHOICE:-1}"
 
 SHARDS=""
@@ -116,18 +129,20 @@ esac
 
 TARGET_MODEL="models/$FILE"
 if [ -f "$TARGET_MODEL" ]; then
-    echo -e "${GREEN}✓ Model already downloaded in $TARGET_MODEL!${RESET}"
+    echo -e "${GREEN}✓ Model already cached locally at $TARGET_MODEL!${RESET}"
 else
-    echo -e "\n${BOLD}Downloading $FILE from $REPO into Colab...${RESET}"
+    echo -e "\n${BOLD}Downloading weights from ${CYAN}$REPO${RESET} into Colab...${RESET}"
     if [ -n "$SHARDS" ]; then
         python3 - <<EOF
 from huggingface_hub import hf_hub_download
+import os
+
 repo_id = "$REPO"
 shards = "$SHARDS".split(",")
 for idx, s in enumerate(shards, 1):
     print(f"[{idx}/{len(shards)}] Downloading {s}...")
     hf_hub_download(repo_id=repo_id, filename=s, local_dir="models")
-print("All Flash-Next shards downloaded successfully!")
+print("All model shards downloaded successfully!")
 EOF
     else
         python3 - <<EOF
@@ -139,39 +154,41 @@ EOF
     fi
 fi
 
-# 4. Launch MoEBoost Server / Chat
-echo -e "\n${BOLD}[4/4] MoEBoost Launch Configuration${RESET}"
-echo -e "  [1] Launch MoEBoost Daemon & Interactive Telemetry Chat (Recommended)"
-echo -e "  [2] Launch OpenAI-compatible API Server (Port 4133)"
-echo -e "  [3] In-Process Direct Python Model Loader"
-
-read -p "Select Launch Mode [1-3, Default: 1]: " LAUNCH_MODE
-LAUNCH_MODE="${LAUNCH_MODE:-1}"
-
+# ------------------------------------------------------------------------------
+# STEP 4: Start MoEBoost Server Daemon (Port 4133)
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}[Step 4/5] Starting MoEBoost Server Daemon...${RESET}"
 export MOE_MODELS_DIR="$(pwd)/models"
+export MOE_MODEL_FILE="$(basename "$TARGET_MODEL")"
 export MOE_PORT="4133"
 
-case "$LAUNCH_MODE" in
-    1)
-        echo -e "${GREEN}Starting background MoEBoost server...${RESET}"
-        python3 -m uvicorn server:app --host 127.0.0.1 --port 4133 > server.log 2>&1 &
-        SERVER_PID=$!
-        echo "Waiting for server to initialize..."
-        for _ in {1..30}; do
-            if curl -s http://127.0.0.1:4133/v1/models >/dev/null 2>&1; then
-                break
-            fi
-            sleep 1
-        done
-        echo -e "${GREEN}Server online (PID: $SERVER_PID)! Launching interactive CLI chat with tok/s telemetry...${RESET}"
-        python3 moeboost_chat.py --model "$TARGET_MODEL"
-        ;;
-    2)
-        echo -e "${GREEN}Starting API Server on http://127.0.0.1:4133...${RESET}"
-        exec python3 -m uvicorn server:app --host 0.0.0.0 --port 4133
-        ;;
-    3)
-        echo -e "${GREEN}Starting direct Python model loader...${RESET}"
-        exec python3 moeboost_model_loader.py --model "$TARGET_MODEL"
-        ;;
-esac
+# Terminate any previously running server on port 4133
+if command -v fuser >/dev/null 2>&1; then
+    fuser -k -9 4133/tcp >/dev/null 2>&1 || true
+fi
+
+python3 -m uvicorn server:app --host 127.0.0.1 --port 4133 > server.log 2>&1 &
+SERVER_PID=$!
+echo "Starting MoEBoost server daemon in background (PID: $SERVER_PID)..."
+
+SERVER_ONLINE=0
+for i in {1..35}; do
+    if curl -s http://127.0.0.1:4133/api/telemetry >/dev/null 2>&1; then
+        SERVER_ONLINE=1
+        break
+    fi
+    sleep 1
+done
+
+if [ "$SERVER_ONLINE" -eq 1 ]; then
+    echo -e "${GREEN}✓ MoEBoost server is ONLINE and responding at http://127.0.0.1:4133${RESET}"
+else
+    echo -e "${YELLOW}Server is still loading model weights into memory; continuing to chat interface...${RESET}"
+fi
+
+# ------------------------------------------------------------------------------
+# STEP 5: Launch Python Chat with Generation & Prefill tok/s Telemetry
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}[Step 5/5] Launching Interactive Python Chat with tok/s Telemetry...${RESET}"
+echo "------------------------------------------------------------------------------"
+exec python3 moeboost_chat.py
