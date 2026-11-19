@@ -191,4 +191,4 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[Step 5/5] Launching Interactive Python Chat with tok/s Telemetry...${RESET}"
 echo "------------------------------------------------------------------------------"
-exec python3 moeboost_chat.py
+exec python3 moeboost_chat.py --model "$(basename "$TARGET_MODEL")"

@@ -9,10 +9,12 @@ Communicates with MoEBoost (OpenAI-compatible server) and displays real-time:
 """
 
 import sys
+import os
 import time
 import json
 import urllib.request
 import urllib.error
+import argparse
 
 DEFAULT_URL = "http://127.0.0.1:4133"
 
@@ -23,6 +25,15 @@ def query_telemetry(base_url: str):
             return json.loads(resp.read().decode("utf-8"))
     except Exception:
         return None
+
+def query_models(base_url: str):
+    try:
+        req = urllib.request.Request(f"{base_url}/v1/models", headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("data", [])
+    except Exception:
+        return []
 
 def chat_completion(base_url: str, messages: list[dict], model: str = None, max_tokens: int = 512, temperature: float = 0.7):
     payload = {
@@ -42,8 +53,12 @@ def chat_completion(base_url: str, messages: list[dict], model: str = None, max_
     )
     
     t0 = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_msg = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {e.code}: {err_msg}") from e
     t1 = time.perf_counter()
     wall_time = max(0.001, t1 - t0)
     
@@ -77,7 +92,14 @@ def chat_completion(base_url: str, messages: list[dict], model: str = None, max_
     }
 
 def main():
-    base_url = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_URL
+    parser = argparse.ArgumentParser(description="MoEBoost Text-Based Interactive Chat & Telemetry Monitor")
+    parser.add_argument("url", nargs="?", default=DEFAULT_URL, help="Base URL of MoEBoost server")
+    parser.add_argument("--model", default=None, help="Model ID or filename to use for inference")
+    args = parser.parse_args()
+
+    base_url = args.url
+    model_id = args.model or os.environ.get("MOE_MODEL_FILE")
+
     print("=" * 65)
     print(" 🚀 MoEBoost Text-Based Interactive Chat & Telemetry Monitor")
     print(f" 🌐 Target Endpoint: {base_url}")
@@ -93,7 +115,17 @@ def main():
         runtime = telemetry.get("runtime", {})
         backend = runtime.get("backend", "cuda")
         gpu_layers = runtime.get("gpu_layers", 0)
+        active_model = runtime.get("model_path")
         print(f"✅ MoEBoost Online | Backend: {backend.upper()} | GPU Layers: {gpu_layers}")
+        if active_model:
+            print(f"📦 Active Model: {os.path.basename(active_model)}")
+
+    # Auto-detect model if not provided
+    if not model_id:
+        models = query_models(base_url)
+        if models:
+            model_id = models[0].get("id")
+            print(f"💡 Auto-selected Model: {model_id}")
 
     messages = [
         {"role": "system", "content": "You are a helpful and intelligent AI assistant powered by MoEBoost."}
@@ -111,7 +143,7 @@ def main():
             messages.append({"role": "user", "content": user_input})
             print("\n🤖 Assistant (generating...): ", end="", flush=True)
 
-            result = chat_completion(base_url, messages)
+            result = chat_completion(base_url, messages, model=model_id)
             reply = result["reply"]
             print(reply)
 

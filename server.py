@@ -1563,7 +1563,14 @@ async def chat_completions(request: Request):
         raise HTTPException(status_code=400, detail="messages must be a JSON array")
     model_id = body.get("model")
     if not isinstance(model_id, str) or not model_id:
-        raise HTTPException(status_code=400, detail="model must be a local GGUF model ID")
+        # Fallback to the first available local model or currently active model
+        available_models = inventory.list_models(include_errors=False)
+        if available_models:
+            model_id = available_models[0]["id"]
+        elif os.environ.get("MOE_MODEL_FILE"):
+            model_id = os.environ.get("MOE_MODEL_FILE")
+        else:
+            raise HTTPException(status_code=400, detail="model parameter is required (no models found in inventory)")
     try:
         if "mtp" in body and isinstance(body["mtp"], dict):
             mtp_cfg = body["mtp"]
