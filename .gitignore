@@ -1,0 +1,11 @@
+.venv/
+build/
+*.so
+__pycache__/
+*.pyc
+server.log
+expert_telemetry.json
+.expert_profile_index.json
+.gui_settings.json
+models/*.gguf
+models/download/

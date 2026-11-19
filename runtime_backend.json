@@ -1,0 +1,1 @@
+{"backend": "cuda", "fallback_backends": ["cpu"]}

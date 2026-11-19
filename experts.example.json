@@ -1,0 +1,5 @@
+{
+  "experts": {
+    "layer0.expert0": {"path": "model.gguf", "offset": 0, "size": 4096}
+  }
+}
