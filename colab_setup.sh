@@ -197,6 +197,18 @@ done
 
 if [ "$SERVER_ONLINE" -eq 1 ]; then
     echo -e "${GREEN}✓ MoEBoost server is ONLINE and responding at http://127.0.0.1:4133${RESET}"
+    echo "Pre-loading model into GPU VRAM..."
+    python3 - <<EOF
+import urllib.request, json
+try:
+    payload = json.dumps({"model_id": "$RELATIVE_MODEL_ID"}).encode('utf-8')
+    req = urllib.request.Request("http://127.0.0.1:4133/api/runtime/load", data=payload, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=600) as resp:
+        res = json.loads(resp.read().decode('utf-8'))
+        print("✓ Model successfully loaded into VRAM! Active layers:", res.get("gpu_layers"), "| Backend:", res.get("backend"))
+except Exception as e:
+    print("Preload notice (will load on first message):", e)
+EOF
 else
     echo -e "${YELLOW}Server is still loading model weights into memory; continuing to chat interface...${RESET}"
 fi
