@@ -161,7 +161,8 @@ class GGUFReader:
                     relative = self._unpack(stream, "Q")
                     raw_tensors.append((name, dims, ggml_type, relative))
                 self.data_offset = (stream.tell() + self.alignment - 1) & ~(self.alignment - 1)
-                if self.data_offset > self.file_size:
+                is_split_header = bool(tensor_count == 0 and "split.count" in self.metadata)
+                if not is_split_header and self.data_offset > self.file_size:
                     raise ValueError("GGUF tensor table extends beyond end of file")
                 architecture = self.metadata.get("general.architecture", "unknown")
                 architecture = architecture if isinstance(architecture, str) else "unknown"
