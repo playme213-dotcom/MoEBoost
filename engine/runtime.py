@@ -557,7 +557,7 @@ class LlamaCppRuntime:
         )
         self._gpu_support: bool | None = None
         self._active_gpu_layers = 0
-        self._active_backend = "cpu"
+        self._active_backend = self.build_backend
         self._fallback_reason: str | None = None
         self._error: str | None = None
 
@@ -942,7 +942,7 @@ class LlamaCppRuntime:
         llm, self._llm = self._llm, None
         prev_path, self._model_path = self._model_path, None
         self._active_gpu_layers = 0
-        self._active_backend = "cpu"
+        self._active_backend = self.build_backend
         if llm is not None:
             try:
                 llm.draft_model = None
